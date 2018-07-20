@@ -6,7 +6,7 @@ Written by Lucien Gaitskell, 2018
 from machine import ADC, Pin
 
 
-SCALE = (3.5 / 4095) * 2  # adc scale * voltage divider
+_SCALE = (3.5 / 4095) * 2  # adc scale * voltage divider
 
 
 class BatteryVoltage:
@@ -22,7 +22,7 @@ class BatteryVoltage:
         return self.batv.read()
 
     def get_volt(self, val):
-        return val*SCALE
+        return val * _SCALE
 
     def read_volt(self):
         return self.get_volt(self.read())
