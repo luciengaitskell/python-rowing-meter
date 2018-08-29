@@ -68,7 +68,7 @@ def point_m_dist(p1, p2):
 
 class GPSPoint:
     def __init__(self, **kwargs):
-        for k in ['ts', 'lat', 'lon', 'alt', 'vel', 'ang']:
+        for k in ['ts', 'lat', 'lon', 'alt', 'spd', 'ang']:
             setattr(self, k, kwargs[k])
 
     @classmethod
@@ -78,7 +78,7 @@ class GPSPoint:
             lat=gps.latitude,
             lon=gps.longitude,
             alt=gps.altitude_m,
-            vel=gps.velocity_knots,
+            spd=gps.speed_knots,
             ang=gps.track_angle_deg
         )
 
