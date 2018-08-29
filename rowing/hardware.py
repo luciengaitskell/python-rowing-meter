@@ -55,12 +55,9 @@ class Hardware:
         self.accel.data_rate = adafruit_lis3dh.DATARATE_400_HZ
 
         # SD Card:
+        self.sd = sd
         if sd:
-            self._sd_spi = SPI(1, sck=Pin(5, value=0), miso=Pin(19), mosi=Pin(18))
-            self.sd = adafruit_sdcard.SDCard(self._sd_spi, Pin(33))
-        else:
-            self._sd_spi = None
-            self.sd = None
+            os.sdconfig(os.SDMODE_SPI, clk=5, mosi=18, miso=19, cs=33, maxspeed=16)
 
         # Cell Modem:
         self.cellular_enable = Pin(4, mode=Pin.OUT)
@@ -122,7 +119,7 @@ class Hardware:
         ## CELLULAR
         '''
         if self.sd:
-            os.mount(self.sd, self.SD_PATH)
+            os.mountsd()
 
         self.gps.send_command(adafruit_gps.NMEA_OUTPUT_RMCGGA)
         self.gps.send_command(adafruit_gps.NMEA_UPDATE_2HZ)
@@ -136,8 +133,7 @@ class Hardware:
         #self.cellular.send_sms(b'14012975454', b'START')
 
     def close(self):
-        if self._sd_spi:
-            self._sd_spi.deinit()
+        pass
 
     def sleep(self):
         self.gps.send_command(adafruit_gps.STANDBY)  # Enter sleep mode
