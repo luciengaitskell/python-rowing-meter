@@ -1,6 +1,6 @@
 from devices.ssd1306 import SSD1306
 
-from rowing.ui.elements import Element
+from rowing.display.elements import Element
 
 
 class DisplayHandler:
