@@ -5,7 +5,7 @@ Written by Lucien Gaitskell (2018)
 """
 
 from machine import UART, I2C, Pin
-from rowing.devices import adafruit_gps, ssd1306
+from devices import adafruit_gps, ssd1306
 
 
 class Hardware:
