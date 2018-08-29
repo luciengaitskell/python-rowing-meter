@@ -172,6 +172,9 @@ class GPS:
             self._parse_gprmc(args)
         return True
 
+    def any_updates(self):
+        return self._uart.any()
+
     def send_command(self, command, add_checksum=True):
         """Send a command string to the GPS.  If add_checksum is True (the
         default) a NMEA checksum will automatically be computed and added.
