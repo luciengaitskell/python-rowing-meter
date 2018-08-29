@@ -55,6 +55,41 @@ __version__ = "3.0.2"
 __repo__ = "https://github.com/adafruit/Adafruit_CircuitPython_GPS.git"
 
 
+# == CONFIX STRINGS ==
+# different commands to set the update rate from once a second (1 Hz) to 10 times a second (10Hz)
+# Note that these only control the rate at which the position is echoed, to actually speed up the
+# position fix you must also send one of the position fix rate commands below too.
+NMEA_UPDATE_100_MILLIHERTZ = "PMTK220,10000"  # Once every 10 seconds, 100 millihertz.
+NMEA_UPDATE_200_MILLIHERTZ = "PMTK220,5000"  # Once every 5 seconds, 200 millihertz.
+NMEA_UPDATE_1HZ = "PMTK220,1000"
+NMEA_UPDATE_2HZ = "PMTK220,500"
+NMEA_UPDATE_5HZ = "PMTK220,200"
+NMEA_UPDATE_10HZ = "PMTK220,100"
+
+# Position fix update rate commands:
+FIX_CTL_100_MILLIHERTZ = "PMTK300,10000,0,0,0,0" # Once every 10 seconds, 100 millihertz.
+FIX_CTL_200_MILLIHERTZ = "PMTK300,5000,0,0,0,0"  # Once every 5 seconds, 200 millihertz.
+FIX_CTL_1HZ = "PMTK300,1000,0,0,0,0"
+FIX_CTL_5HZ = "PMTK300,200,0,0,0,0"
+
+# Coms baud:
+BAUD_57600 = "PMTK251,57600"
+BAUD_9600 = "PMTK251,9600"
+
+# Output control:
+## turn on only the second sentence (GPRMC)
+NMEA_OUTPUT_RMCONLY = "PMTK314,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+## turn on GPRMC and GGA
+NMEA_OUTPUT_RMCGGA = "PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+## turn on ALL THE DATA
+NMEA_OUTPUT_ALLDATA = "PMTK314,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0"
+## turn off output
+NMEA_OUTPUT_OFF = "PMTK314,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+
+# Sleep:
+STANDBY = "PMTK161,0"
+
+
 def point_m_dist(p1, p2):
     earthRadiusKm = 6.371 * 10 ** 6
     dLat = math.radians(p2.lat - p1.lat)
