@@ -6,6 +6,14 @@ from machine import UART
 import math
 import utime
 
+REPLY_OK = True
+REPLY_ERROR = False
+REPLY_TIMEOUT = None
+
+HTTP_GET = 0
+HTTP_POST = 1
+HTTP_HEAD = 2
+
 
 # kludge required because "ignore" parameter to decode not implemented
 def _convert_to_string(buf):
@@ -41,171 +49,183 @@ class SIM800L:
         self._clip = None
         self.msg_action = None
         self._msgid = 0
-        self.savbuf = None
         self.credit = ''
         self.credit_action = None
-        
+
     def callback_incoming(self,action):
         self.incoming_action = action
 
     def callback_no_carrier(self,action):
         self.no_carrier_action = action
-    
+
     def callback_clip(self,action):
         self.clip_action = action
-    
+
     def callback_credit_action(self,action):
         self.credit_action = action
 
     def get_clip(self):
         return self._clip
-        
+
     def callback_msg(self,action):
         self.msg_action = action
 
     def get_msgid(self):
         return self._msgid
-    
-    def command(self, cmd: bytes, lines=1, waitfor=500, msgtext: bytes=None):
+
+    def process_resp(self, detect_str=None, waitfor=1000):
+        t_last = utime.ticks_ms()
+
+        state = REPLY_TIMEOUT
+        result = b''
+        while utime.ticks_diff(utime.ticks_ms(), t_last) < waitfor:
+            if self._uart.any():
+                buf = self._uart.readline()
+
+                if buf == b'\r\n': continue  # Discard 'empty' lines
+
+                buf = buf.strip()  # Strip newlines/carriage returns
+
+                # Signals end of response:
+                if b'OK' in buf:
+                    state = REPLY_OK
+                    break
+                if b'ERROR' in buf:
+                    state = REPLY_ERROR
+                    break
+
+                result += buf + b'\n'
+
+                if detect_str is not None and detect_str in buf:
+                    break
+
+        return state, result.strip()
+
+    def command(self, cmd: bytes, lines=1, waitfor=1000, detect_str=None, end=None, msgtext: bytes=None):
         #flush input
         #print(cmdstr)
-        st = utime.ticks_ms()
         while self._uart.any():
             self._uart.read(1)
-        self._uart.write(cmd)
+
+        if end is None: end = b'\n'
+        self._uart.write(cmd + end)
         if msgtext:
-            self._uart.write(msgtext)
-        delay = waitfor - utime.ticks_diff(utime.ticks_ms(), st)
-        if delay > 0:
-            utime.sleep_ms(delay)
-        buf=self._uart.readline() #discard linefeed etc
-        print(buf) ##
-        buf=self._uart.readline()
-        print(buf)  ##
-        if not buf:
-            return None
-        result = _convert_to_string(buf)
-        if lines>1:
-            self.savbuf = ''
-            for i in range(lines-1):
-                buf=self._uart.readline()
-                if not buf:
-                    return result
-                #print(buf)
-                buf = _convert_to_string(buf)
-                if not buf == '' and not buf == 'OK':
-                    self.savbuf += buf+'\n'
-        return result
-    
+            t_last = utime.ticks_ms()
+            while utime.ticks_diff(utime.ticks_ms(), t_last) < 1000:
+                if self._uart.any():
+                    buf = self._uart.readline()
+                    if b'>' in buf: break
+            self._uart.write(msgtext + b'\x1A')
+        return self.process_resp(detect_str=detect_str, waitfor=waitfor)
+
+
     def setup(self):
-        self.command(b'ATE0\n')         # command echo off
-        self.command(b'AT+CRSL=99\n')   # ringer level
-        self.command(b'AT+CMIC=0,10\n') # microphone gain
-        self.command(b'AT+CLIP=1\n')    # caller line identification
-        self.command(b'AT+CMGF=1\n')    # plain text SMS
-        self.command(b'AT+CALS=3,0\n')  # set ringtone
-        self.command(b'AT+CLTS=1\n')    # enabke get local timestamp mode
-        self.command(b'AT+CSCLK=0\n')   # disable automatic sleep
-        
+        self.command(b'ATE0')         # command echo off
+        #self.command(b'AT+CRSL=99\n')   # ringer level
+        #self.command(b'AT+CMIC=0,10\n') # microphone gain
+        #self.command(b'AT+CLIP=1\n')    # caller line identification
+        self.command(b'AT+CMGF=1')    # plain text SMS
+        #self.command(b'AT+CALS=3,0\n')  # set ringtone
+        #self.command(b'AT+CLTS=1\n')    # enable get local timestamp mode
+        self.command(b'AT+CSCLK=0')   # disable automatic sleep
+
     def wakechars(self):
-        self._uart.write(b'AT\n')        # will be ignored
-        utime.sleep_ms(100)
-    
+        self._uart.write(b'AT')        # will be ignored
+
     def sleep(self,n):
-        self.command(b'AT+CSCLK=T%d\n' % n)
-            
+        self.command(b'AT+CSCLK=T%d' % n)
+
     def sms_alert(self):
-        self.command(b'AT+CALS=1,1\n')  # set ringtone
+        self.command(b'AT+CALS=1,1')  # set ringtone
         utime.sleep_ms(3000)
-        self.command(b'AT+CALS=3,0\n')  # set ringtone
-  
+        self.command(b'AT+CALS=3,0')  # set ringtone
+
     def call(self,numstr):
-        self.command(b'ATD%s;\n' % numstr)
-        
+        self.command(b'ATD%s;' % numstr)
+
     def hangup(self):
-        self.command(b'ATH\n')
-        
+        self.command(b'ATH')
+
     def answer(self):
-        self.command(b'ATA\n')
-    
+        self.command(b'ATA')
+
     def set_volume(self,vol):
-        if (vol>=0 and vol<=100):
-            self.command(b'AT+CLVL=%d\n' % vol)
-    
+        if 0 <= vol <= 100:
+            self.command(b'AT+CLVL=%d' % vol)
+
     def signal_strength(self):
-        result = self.command(b'AT+CSQ\n',3)
-        if result:
-            params = result.split(',')
-            if not params[0] == '':
-                params2 = params[0].split(':')
-                if params2[0]=='+CSQ':
+        s, result = self.command(b'AT+CSQ')
+        if s:
+            params = result.split(b',')
+            if not params[0] == b'':
+                params2 = params[0].split(b':')
+                if b'+CSQ' in params2[0]:
                     x = int(params2[1])
                     if not x == 99:
-                        return(math.floor(x/6+0.5))
+                        return math.floor(x/6+0.5)
         return 0
-        
+
     def battery_charge(self):
-        result = self.command(b'AT+CBC\n', 3, 1500)
-        if result:
-            params=result.split(',')
+        s, result = self.command(b'AT+CBC')
+        if s:
+            params=result.split(b',')
             if not params[0] == '':
-                params2 = params[0].split(':')
-                if params2[0]=='+CBC':
+                params2 = params[0].split(b':')
+                if b'+CBC' in params2[0]:
                     return int(params[1])
         return 0
-        
-    def network_name(self):   
-        result = self.command(b'AT+COPS?\n',3)
-        if result:
-            params=result.split(',')
-            if not params[0] == '':
-                params2 = params[0].split(':')
-                if params2[0]=='+COPS':
-                    if len(params)>2:
-                        names = params[2].split('"')
-                        if len(names)>1:
-                            return names[1]
-        return ''
 
+    def network_name(self):
+        s, result = self.command(b'AT+COPS?')
+        if s:
+            params=result.split(b',')
+            if not params[0] == '':
+                params2 = params[0].split(b':')
+                if params2[0] == b'+COPS':
+                    if len(params) > 2:
+                        names = params[2].split(b'"')
+                        if len(names) > 1:
+                            return names[1]
+        return b''
 
     def read_sms(self, id):
-        result = self.command(b'AT+CMGR=%d\n' % id,99)
-        if result:
-            params=result.split(',')
-            if not params[0] == '':
-                params2 = params[0].split(':')
-                if params2[0]=='+CMGR':
-                    number = params[1].replace('"',' ').strip()
-                    date   = params[3].replace('"',' ').strip()
-                    time   = params[4].replace('"',' ').strip()
-                    return  [number,date,time,self.savbuf]
+        s, result = self.command(b'AT+CMGR=%d' % id)
+        if s:
+            params=result.split(b',')
+            if not params[0] == b'':
+                params2 = params[0].split(b':')
+                if b'+CMGR' in params2[0]:
+                    number = params[1].replace(b'"', b' ').strip()
+                    date = params[3].replace(b'"', b' ').strip()
+                    time = params[4].replace(b'"', b' ').strip()
+                    return number, date, time, result
         return None
-    
+
     def send_sms(self, destno, msgtext):
-        result = self.command(b'AT+CMGS="%s"\n' % destno, 99, 5000, msgtext+b'\x1A')
-        if result and result=='>' and self.savbuf:
-            params = self.savbuf.split(':')
-            if params[0]=='+CUSD' or params[0] == '+CMGS':
-                return 'OK'
-        return 'ERROR'
-    
+        s, result = self.command(b'AT+CMGS="%s"' % destno, msgtext=msgtext)
+        if s:
+            params = result.split(b':')
+            if b'+CUSD' in params[0] or b'+CMGS' in params[0]:
+                return True
+        return False
+
     def check_credit(self):
-        self.command(b'AT+CUSD=1,"*100#"\n')
-    
+        self.command(b'AT+CUSD=1,"*100#"')
+
     def get_credit(self):
         return self.credit
-    
+
     def delete_sms(self,id):
-        self.command(b'AT+CMGD=%d\n' % id,1)
-                     
+        self.command(b'AT+CMGD=%d' % id)
+
     def date_time(self):
-        result = self.command(b'AT+CCLK?\n',3)
-        if result:
-            if result[0:5] == "+CCLK":
-                return result.split('"')[1]
-        return ''
-        
-    def check_incoming(self): 
+        s, result = self.command(b'AT+CCLK?')
+        if s:
+            if result[0:5] == b"+CCLK":
+                return result.split(b'"')[1]
+        return b''
+
+    def check_incoming(self):
         if self._uart.any():
             buf=self._uart.readline()
             # print(buf)
@@ -235,70 +255,73 @@ class SIM800L:
             elif params[0] == "NO CARRIER":
                     self.no_carrier_action()
 
+    def gprs_setup(self, apn=b"wholesale"):
+        setup = self.command(b'AT+SAPBR=3,1,"Contype","GPRS"', waitfor=1000)[0]
+        setup &= self.command(b'AT+SAPBR=3,1,"APN","%s"' % apn, waitfor=1000)[0]
 
-    # http get command using gprs
-    def http_get(self,url,apn="giffgaff.com"):
+        if not setup: raise OSError("Failed to setup GPRS")
+        self.command(b'AT+SAPBR=1,1')
+        return True
+
+    def http_setup(self):
+        # now do http request
+        setup = self.command(b'AT+HTTPINIT')[0]
+        if not setup: print("Failed to init HTTP service")
+        config = self.command(b'AT+HTTPPARA="CID",1')[0]
+        if not config: print("Failed to configure HTTP service")
+        return True
+
+    def http(self, url, action=HTTP_GET):
         resp = None
-        rstate = 0
+
+        # Split URL:
         proto, dummy, surl = url.split("/", 2)
-        is_ssl = 0
-        if  proto == "http:":
+
+        if proto == "http:":
             is_ssl = 0
         elif proto == "https:":
             is_ssl = 1
         else:
             raise ValueError("Unsupported protocol: " + proto)
+
         try:
-            # open bearer context
-            res = self.command(b'AT+SAPBR=3,1,"Contype","GPRS"\n')
-            _check_result(b"SAPBR 1: ", 'OK', res)
-            res = self.command(b'AT+SAPBR=3,1,"APN","%s"\n' % apn)
-            _check_result("SAPBR 2: ", 'OK', res)
-            res = self.command(b'AT+SAPBR=1,1\n',1,2000)
-            _check_result("SAPBR 3: ", 'OK', res)
-            # now do http request
-            res = self.command(b'AT+HTTPINIT\n',1)
-            _check_result("HTTPINIT: ", 'OK', res)
-            res = self.command(b'AT+HTTPPARA="CID",1\n')
-            _check_result("HTTPPARA 1: ", 'OK', res)
-            res = self.command(b'AT+HTTPPARA="URL","%s"\n' % surl)
-            _check_result("HTTPPARA 2: ", 'OK', res)
-            res = self.command(b'AT+HTTPSSL=%d\n' % is_ssl)
-            _check_result("HTTPSSL: ", 'OK', res)
-            res = self.command(b'AT+HTTPACTION=0\n')
-            _check_result("HTTPACTION: ", 'OK', res)
-            for i in range(20):  #limit wait to max 20 x readline timeout
-                buf = self._uart.readline()
-                if buf and not buf=='\r\n':
-                    buf = _convert_to_string(buf)
-                    #print(buf)
-                    prefix,retcode,bts = buf.split(',')
-                    rstate = int(retcode)
-                    nbytes = int(bts)
-                    break
-            res = self.command(b'AT+HTTPREAD\n',1)
-            buf = self._uart.read(nbytes)
-            _check_result("HTTPACTION: ", '+HTTPREAD: {}'.format(nbytes), res)
-            if buf[-4:] == 'OK\r\n':  # remove final OK if it was read
-                buf = buf[:-4]
+            s = self.command(b'AT+HTTPPARA="URL","%s"' % surl)[0]
+            s &= self.command(b'AT+HTTPSSL=%d' % is_ssl)[0]
+            s &= self.command(b'AT+HTTPACTION=%d' % action)[0]
+            ts = utime.ticks_ms()
+            nbytes = None
+
+            while utime.ticks_diff(utime.ticks_ms(), ts) < 20000:
+                if self._uart.any():
+                    buf = self._uart.readline()
+                    if buf and not buf == b'\r\n' and not buf == b'':
+                        buf = _convert_to_string(buf)
+                        print(buf)
+                        prefix,retcode,bts = buf.split(',')
+                        rstate = int(retcode)
+                        nbytes = int(bts)
+                        break
+            if nbytes is None: raise OSError("HTTP ACTION NOT COMPLETE")
+            res = self.command(b'AT+HTTPREAD')[1]
+            buf = self.command(b'')[1]
+            #buf = self._uart.read(nbytes)
+            #_check_result("HTTPACTION: ", '+HTTPREAD: {}'.format(nbytes), res)
+            #if buf[-4:] == 'OK\r\n':  # remove final OK if it was read
+            #    buf = buf[:-4]
             resp = Response(buf)
         except SIM800LError as err:
             print(str(err))
-        self.command(b'AT+HTTPTERM\n',1) # terminate HTTP task
-        self.command(b'AT+SAPBR=0,1\n',1) # close Bearer context
         return resp
 
+    def http_close(self):
+        self.command(b'AT+HTTPTERM')  # terminate HTTP task
 
-    def test(self):
-        r = self.http_get('http://exploreembedded.com/wiki/images/1/15/Hello.txt')
-        print(r.text)
-
-
+    def gprs_close(self):
+        self.command(b'AT+SAPBR=0,1')  # close Bearer context
 
 
 
 class Response:
-    
     def __init__(self, buf, status=200):
         self.encoding = "utf-8"
         self._cached = buf
@@ -319,4 +342,3 @@ class Response:
     def json(self):
         import ujson
         return ujson.loads(self.content)
-
